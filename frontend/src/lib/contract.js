@@ -1,165 +1,190 @@
-import { Address, scValToNative } from '@stellar/stellar-sdk';
+import { Address, nativeToScVal, scValToNative } from '@stellar/stellar-sdk';
 import { signTransaction } from '@stellar/freighter-api';
 import {
   buildContractTx,
   submitTx,
   simulateContractCall,
+  ensureTrustline,
   NETWORK_PASSPHRASE,
 } from './stellar.js';
 
-// ── Contract IDs from env ────────────────────────────────────────────────────
+// ── Contract ID from env ─────────────────────────────────────────────────────
 
-const FAUCET_CONTRACT_ID = import.meta.env.VITE_FAUCET_CONTRACT_ID || '';
+const CROWDFUNDING_CONTRACT_ID = import.meta.env.VITE_CROWDFUNDING_CONTRACT_ID || '';
 const TOKEN_CONTRACT_ID = import.meta.env.VITE_TOKEN_CONTRACT_ID || '';
-const TOKEN_ASSET = import.meta.env.VITE_TOKEN_ASSET || '';
 
-// ── Claim Tokens ─────────────────────────────────────────────────────────────
+// ── Helper: sign + submit a built transaction ────────────────────────────────
 
-/**
- * Claim tokens from the faucet.
- * Builds the tx, signs via Freighter, and submits.
- */
-export async function claimTokens(publicKey) {
-  if (!FAUCET_CONTRACT_ID) throw new Error('Faucet contract ID not configured');
+async function signAndSubmit(tx) {
+  // Get base64 XDR - try multiple approaches for SDK compatibility
+  let xdrString;
+  if (typeof tx.toXDR === 'function') {
+    // SDK v13: toXDR() may return Buffer or string
+    const raw = tx.toXDR();
+    xdrString = typeof raw === 'string' ? raw : Buffer.from(raw).toString('base64');
+  } else if (typeof tx.toEnvelope === 'function') {
+    const env = tx.toEnvelope();
+    const raw = env.toXDR();
+    xdrString = typeof raw === 'string' ? raw : Buffer.from(raw).toString('base64');
+  } else {
+    throw new Error('Cannot serialize transaction to XDR');
+  }
 
-  const userAddress = new Address(publicKey);
+  const signed = await signTransaction(xdrString, {
+    networkPassphrase: NETWORK_PASSPHRASE,
+  });
+  if (!signed.signedTxXdr) {
+    throw new Error('Transaction signing was cancelled by the user.');
+  }
+  return await submitTx(signed.signedTxXdr);
+}
+
+// ── Create Campaign ──────────────────────────────────────────────────────────
+
+export async function createCampaign(publicKey, title, desc, goalXLM, deadline) {
+  if (!CROWDFUNDING_CONTRACT_ID) throw new Error('Crowdfunding contract ID not configured');
+
+  const creatorAddr = new Address(publicKey);
+  const goalRaw = BigInt(Math.round(goalXLM * 1e7));
 
   const tx = await buildContractTx(
     publicKey,
-    FAUCET_CONTRACT_ID,
-    'claim',
-    userAddress.toScVal()
+    CROWDFUNDING_CONTRACT_ID,
+    'create_campaign',
+    creatorAddr.toScVal(),
+    nativeToScVal(title, { type: 'string' }),
+    nativeToScVal(desc, { type: 'string' }),
+    nativeToScVal(goalRaw, { type: 'i128' }),
+    nativeToScVal(deadline, { type: 'u64' }),
   );
 
-  // Sign with Freighter
-  const signed = await signTransaction(tx.toXDR(), {
-    networkPassphrase: NETWORK_PASSPHRASE,
-  });
-
-  if (!signed.signedTxXdr) {
-    throw new Error('Transaction signing was cancelled');
-  }
-
-  const result = await submitTx(signed.signedTxXdr);
-  return result;
+  return await signAndSubmit(tx);
 }
 
-// ── Establish Trustline ──────────────────────────────────────────────────────
+// ── Fund Campaign ────────────────────────────────────────────────────────────
 
-/**
- * Build, sign, and submit a ChangeTrust operation for the token.
- */
-export async function establishTrustline(publicKey) {
-  if (!TOKEN_ASSET) throw new Error('Token asset not configured in env');
-  const [code, issuer] = TOKEN_ASSET.split(':');
+export async function fundCampaign(publicKey, campaignId, amountXLM) {
+  if (!CROWDFUNDING_CONTRACT_ID) throw new Error('Crowdfunding contract ID not configured');
 
-  const { Asset, TransactionBuilder, BASE_FEE, Operation, Horizon } = await import('@stellar/stellar-sdk');
-  const { server, NETWORK_PASSPHRASE } = await import('./stellar.js');
-
-  const asset = new Asset(code, issuer);
-  const account = await server.getAccount(publicKey);
-
-  const tx = new TransactionBuilder(account, {
-    fee: BASE_FEE,
-    networkPassphrase: NETWORK_PASSPHRASE,
-  })
-    .addOperation(
-      Operation.changeTrust({
-        asset,
-      })
-    )
-    .setTimeout(60)
-    .build();
-
-  const signed = await signTransaction(tx.toXDR(), {
-    networkPassphrase: NETWORK_PASSPHRASE,
-    network: NETWORK_PASSPHRASE,
-  });
-
-  if (!signed.signedTxXdr) {
-    throw new Error('Trustline signing was cancelled');
+  // Ensure the user has a trustline for the funding token
+  if (TOKEN_CONTRACT_ID) {
+    await ensureTrustline(publicKey, TOKEN_CONTRACT_ID, signTransaction);
   }
 
-  // Submit via Horizon as this is a classic operation
-  const horizon = new Horizon.Server('https://horizon-testnet.stellar.org');
-  const txToSubmit = TransactionBuilder.fromXDR(signed.signedTxXdr, NETWORK_PASSPHRASE);
-  
-  return await horizon.submitTransaction(txToSubmit);
+  const funderAddr = new Address(publicKey);
+  const amountRaw = BigInt(Math.round(amountXLM * 1e7));
+
+  const tx = await buildContractTx(
+    publicKey,
+    CROWDFUNDING_CONTRACT_ID,
+    'fund',
+    nativeToScVal(campaignId, { type: 'u32' }),
+    funderAddr.toScVal(),
+    nativeToScVal(amountRaw, { type: 'i128' }),
+  );
+
+  return await signAndSubmit(tx);
 }
 
-// ── Get Last Claim ───────────────────────────────────────────────────────────
+// ── Withdraw Funds ───────────────────────────────────────────────────────────
 
-/**
- * Query the last claim timestamp for a user.
- * Returns timestamp in seconds (0 if never claimed).
- */
-export async function getLastClaim(publicKey) {
-  if (!FAUCET_CONTRACT_ID) return 0;
+export async function withdrawFunds(publicKey, campaignId) {
+  if (!CROWDFUNDING_CONTRACT_ID) throw new Error('Crowdfunding contract ID not configured');
 
+  const callerAddr = new Address(publicKey);
+
+  const tx = await buildContractTx(
+    publicKey,
+    CROWDFUNDING_CONTRACT_ID,
+    'withdraw',
+    nativeToScVal(campaignId, { type: 'u32' }),
+    callerAddr.toScVal(),
+  );
+
+  return await signAndSubmit(tx);
+}
+
+// ── Claim Refund ─────────────────────────────────────────────────────────────
+
+export async function claimRefund(publicKey, campaignId) {
+  if (!CROWDFUNDING_CONTRACT_ID) throw new Error('Crowdfunding contract ID not configured');
+
+  const callerAddr = new Address(publicKey);
+
+  const tx = await buildContractTx(
+    publicKey,
+    CROWDFUNDING_CONTRACT_ID,
+    'refund',
+    nativeToScVal(campaignId, { type: 'u32' }),
+    callerAddr.toScVal(),
+  );
+
+  return await signAndSubmit(tx);
+}
+
+// ── Get Campaign ─────────────────────────────────────────────────────────────
+
+export async function getCampaign(publicKey, campaignId) {
+  if (!CROWDFUNDING_CONTRACT_ID) return null;
+
+  const sourceAddr = publicKey || '';
   try {
-    const userAddress = new Address(publicKey);
     const sim = await simulateContractCall(
-      publicKey,
-      FAUCET_CONTRACT_ID,
-      'get_last_claim',
-      userAddress.toScVal()
+      sourceAddr,
+      CROWDFUNDING_CONTRACT_ID,
+      'get_campaign',
+      nativeToScVal(campaignId, { type: 'u32' }),
     );
 
     if (sim.result) {
-      const val = scValToNative(sim.result.retval);
-      return Number(val);
+      return parseCampaign(scValToNative(sim.result.retval));
     }
-    return 0;
+    return null;
   } catch (err) {
-    console.warn('Failed to get last claim:', err);
-    return 0;
+    console.warn('Failed to get campaign:', err);
+    return null;
   }
 }
 
-// ── Get Balance ──────────────────────────────────────────────────────────────
+// ── Get All Campaigns ────────────────────────────────────────────────────────
 
-/**
- * Query the user's token balance.
- * Returns the balance as a display number (divided by 10^7).
- */
-export async function getBalance(publicKey) {
-  if (!TOKEN_CONTRACT_ID) return 0;
+export async function getAllCampaigns(publicKey) {
+  if (!CROWDFUNDING_CONTRACT_ID) return [];
+  const sourceAddr = publicKey || '';
 
   try {
-    const userAddress = new Address(publicKey);
     const sim = await simulateContractCall(
-      publicKey,
-      TOKEN_CONTRACT_ID,
-      'balance',
-      userAddress.toScVal()
+      sourceAddr,
+      CROWDFUNDING_CONTRACT_ID,
+      'get_all_campaigns',
     );
 
     if (sim.result) {
       const raw = scValToNative(sim.result.retval);
-      // Token uses 7 decimal places
-      return Number(raw) / 1e7;
+      if (Array.isArray(raw)) {
+        return raw.map(parseCampaign);
+      }
     }
-    return 0;
+    return [];
   } catch (err) {
-    console.warn('Failed to get balance:', err);
-    return 0;
+    console.warn('Failed to get all campaigns:', err);
+    return [];
   }
 }
 
-// ── Get Claim Amount ─────────────────────────────────────────────────────────
+// ── Get Contribution ─────────────────────────────────────────────────────────
 
-/**
- * Query the configured claim amount.
- * Returns as display number.
- */
-export async function getClaimAmount(publicKey) {
-  if (!FAUCET_CONTRACT_ID) return 0;
+export async function getContribution(publicKey, campaignId) {
+  if (!CROWDFUNDING_CONTRACT_ID || !publicKey) return 0;
 
   try {
+    const funderAddr = new Address(publicKey);
     const sim = await simulateContractCall(
       publicKey,
-      FAUCET_CONTRACT_ID,
-      'get_claim_amount'
+      CROWDFUNDING_CONTRACT_ID,
+      'get_contribution',
+      nativeToScVal(campaignId, { type: 'u32' }),
+      funderAddr.toScVal(),
     );
 
     if (sim.result) {
@@ -168,33 +193,74 @@ export async function getClaimAmount(publicKey) {
     }
     return 0;
   } catch (err) {
-    console.warn('Failed to get claim amount:', err);
+    console.warn('Failed to get contribution:', err);
     return 0;
   }
 }
 
-// ── Get Cooldown ─────────────────────────────────────────────────────────────
+// ── Campaign Parser ──────────────────────────────────────────────────────────
 
-/**
- * Query the cooldown period in seconds.
- */
-export async function getCooldownPeriod(publicKey) {
-  if (!FAUCET_CONTRACT_ID) return 86400;
+function parseStatus(rawStatus) {
+  const statusMap = { 0: 'Active', 1: 'Success', 2: 'Failed' };
 
-  try {
-    const sim = await simulateContractCall(
-      publicKey,
-      FAUCET_CONTRACT_ID,
-      'get_cooldown'
-    );
+  // Handle array enum like ["Active"] from scValToNative
+  if (Array.isArray(rawStatus)) {
+    return parseStatus(rawStatus[0]);
+  }
 
-    if (sim.result) {
-      const val = scValToNative(sim.result.retval);
-      return Number(val);
+  // Handle numeric enum (0=Active, 1=Success, 2=Failed)
+  if (typeof rawStatus === 'number') {
+    return statusMap[rawStatus] || 'Active';
+  }
+
+  // Handle BigInt
+  if (typeof rawStatus === 'bigint') {
+    return statusMap[Number(rawStatus)] || 'Active';
+  }
+
+  // Handle string — could be "0", "1", "2" or "Active", "Success", "Failed"
+  if (typeof rawStatus === 'string') {
+    const num = parseInt(rawStatus, 10);
+    if (!isNaN(num) && statusMap[num]) {
+      return statusMap[num];
     }
-    return 86400;
+    if (['Active', 'Success', 'Failed'].includes(rawStatus)) {
+      return rawStatus;
+    }
+    // Fallback: return the string as-is if it looks like a status name
+    const capitalized = rawStatus.charAt(0).toUpperCase() + rawStatus.slice(1).toLowerCase();
+    if (['Active', 'Success', 'Failed'].includes(capitalized)) {
+      return capitalized;
+    }
+  }
+
+  // Handle Soroban object enum like { Active: undefined }
+  if (rawStatus && typeof rawStatus === 'object') {
+    const key = Object.keys(rawStatus)[0];
+    if (key) return key;
+  }
+
+  return 'Active';
+}
+
+function parseCampaign(raw) {
+  try {
+    return {
+      id: Number(raw.id ?? 0),
+      creator: raw.creator?.toString?.() || String(raw.creator || ''),
+      title: raw.title?.toString?.() || String(raw.title || ''),
+      description: raw.description?.toString?.() || String(raw.description || ''),
+      goal: Number(raw.goal ?? 0) / 1e7,
+      raised: Number(raw.raised ?? 0) / 1e7,
+      deadline: Number(raw.deadline ?? 0),
+      withdrawn: Boolean(raw.withdrawn),
+      status: parseStatus(raw.status),
+    };
   } catch (err) {
-    console.warn('Failed to get cooldown:', err);
-    return 86400;
+    console.warn('[parseCampaign] Error parsing campaign:', err, raw);
+    return {
+      id: 0, creator: '', title: 'Parse Error', description: '',
+      goal: 0, raised: 0, deadline: 0, withdrawn: false, status: 'Active',
+    };
   }
 }

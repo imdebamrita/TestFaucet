@@ -1,5 +1,5 @@
 #!/bin/bash
-# ── Build Soroban Faucet Contract ──────────────────────────────────────────────
+# ── Build Crowdfunding Contract ──────────────────────────────────────────────
 # This script builds the smart contract WASM artifact.
 # Prerequisites: Rust toolchain with wasm32-unknown-unknown target
 #                stellar-cli installed
@@ -10,7 +10,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 echo "══════════════════════════════════════════════════════"
-echo "  Building Soroban Faucet Contract"
+echo "  Building Crowdfunding Contract"
 echo "══════════════════════════════════════════════════════"
 
 cd "$PROJECT_DIR"
@@ -24,7 +24,7 @@ echo "→ Building contract..."
 stellar contract build
 
 # Find the output WASM
-WASM_PATH="target/wasm32-unknown-unknown/release/soroban_faucet_contract.wasm"
+WASM_PATH="target/wasm32-unknown-unknown/release/soroban_crowdfunding_contract.wasm"
 
 if [ -f "$WASM_PATH" ]; then
   SIZE=$(wc -c < "$WASM_PATH" | tr -d ' ')

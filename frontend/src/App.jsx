@@ -1,180 +1,152 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import {
-  isConnected,
-  requestAccess,
-  getPublicKey,
-  getNetwork,
-} from '@stellar/freighter-api';
-import BalanceDisplay from './components/BalanceDisplay.jsx';
-import ClaimTokens from './components/ClaimTokens.jsx';
+import React, { useState, useCallback } from 'react';
+import Navbar from './components/Navbar.jsx';
+import ToastContainer from './components/ToastContainer.jsx';
+import HomePage from './pages/HomePage.jsx';
+import CampaignDetailPage from './pages/CampaignDetailPage.jsx';
+import CreateCampaignPage from './pages/CreateCampaignPage.jsx';
+import MyActivityPage from './pages/MyActivityPage.jsx';
+import { useWallet } from './hooks/useWallet.js';
+import { useToast } from './hooks/useToast.js';
 
-function App() {
-  const [walletAddress, setWalletAddress] = useState(null);
-  const [isFreighterInstalled, setIsFreighterInstalled] = useState(false);
-  const [connecting, setConnecting] = useState(false);
-  const [refreshKey, setRefreshKey] = useState(0);
+export default function App() {
+  const wallet = useWallet();
+  const { toasts, show, update, dismiss } = useToast();
+  const [page, setPage] = useState('home');
+  const [selectedCampaignId, setSelectedCampaignId] = useState(null);
 
-  // Check Freighter on mount
-  useEffect(() => {
-    const checkFreighter = async () => {
-      try {
-        const connected = await isConnected();
-        setIsFreighterInstalled(connected.isConnected);
+  // ── Navigation ──────────────────────────────────────────────────────────
 
-        if (connected.isConnected) {
-          try {
-            const pubKey = await getPublicKey();
-            if (pubKey.address) {
-              setWalletAddress(pubKey.address);
-            }
-          } catch {
-            // Not yet authorized — that's fine
-          }
-        }
-      } catch {
-        setIsFreighterInstalled(false);
-      }
-    };
-    checkFreighter();
+  const navigate = useCallback((target) => {
+    setPage(target);
+    setSelectedCampaignId(null);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
 
-  const connectWallet = useCallback(async () => {
-    if (connecting) return;
-    setConnecting(true);
+  const selectCampaign = useCallback((id) => {
+    setSelectedCampaignId(id);
+    setPage('detail');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
+
+  // ── Wallet Handlers ────────────────────────────────────────────────────
+
+  const handleConnect = async () => {
     try {
-      const access = await requestAccess();
-      if (access.address) {
-        setWalletAddress(access.address);
-      }
+      const key = await wallet.connect();
+      show(`Connected: ${key.slice(0, 4)}…${key.slice(-4)}`, 'success');
     } catch (err) {
-      console.error('Wallet connection failed:', err);
-    } finally {
-      setConnecting(false);
+      show(err.message || 'Connection failed', 'error');
     }
-  }, [connecting]);
-
-  const disconnectWallet = () => {
-    setWalletAddress(null);
   };
 
-  const handleClaimSuccess = () => {
-    setRefreshKey((k) => k + 1);
+  const handleDisconnect = () => {
+    wallet.disconnect();
+    navigate('home');
+    show('Wallet disconnected', 'success');
   };
 
-  const truncateAddress = (addr) => {
-    if (!addr) return '';
-    return `${addr.slice(0, 6)}...${addr.slice(-6)}`;
+  // ── Toast Bridge ────────────────────────────────────────────────────────
+  // Pages call onToast(msg, type, existingId?) → returns toast id
+
+  const handleToast = useCallback((message, type, existingId) => {
+    if (existingId) {
+      update(existingId, message, type);
+      return existingId;
+    }
+    return show(message, type);
+  }, [show, update]);
+
+  // ── Render Page ─────────────────────────────────────────────────────────
+
+  const renderPage = () => {
+    switch (page) {
+      case 'detail':
+        return (
+          <CampaignDetailPage
+            publicKey={wallet.publicKey}
+            campaignId={selectedCampaignId}
+            onBack={() => navigate('home')}
+            onToast={handleToast}
+          />
+        );
+
+      case 'create':
+        return wallet.publicKey ? (
+          <CreateCampaignPage
+            publicKey={wallet.publicKey}
+            onSuccess={() => navigate('home')}
+            onToast={handleToast}
+          />
+        ) : (
+          <div className="empty-state" style={{ padding: '8rem 2rem' }}>
+            <span className="empty-state-icon">🔒</span>
+            <h3>Wallet Required</h3>
+            <p style={{ color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>
+              Connect your Freighter wallet to create a campaign.
+            </p>
+            <button className="btn btn-primary" onClick={handleConnect}>
+              🔗 Connect Wallet
+            </button>
+          </div>
+        );
+
+      case 'my':
+        return wallet.publicKey ? (
+          <MyActivityPage
+            publicKey={wallet.publicKey}
+            onSelectCampaign={selectCampaign}
+          />
+        ) : (
+          <div className="empty-state" style={{ padding: '8rem 2rem' }}>
+            <span className="empty-state-icon">🔒</span>
+            <h3>Wallet Required</h3>
+            <p style={{ color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>
+              Connect your Freighter wallet to see your activity.
+            </p>
+            <button className="btn btn-primary" onClick={handleConnect}>
+              🔗 Connect Wallet
+            </button>
+          </div>
+        );
+
+      default:
+        return (
+          <HomePage
+            publicKey={wallet.publicKey}
+            onSelectCampaign={selectCampaign}
+            onNavigate={navigate}
+            onToast={handleToast}
+          />
+        );
+    }
   };
 
   return (
-    <div className="app">
-      {/* Header */}
-      <header className="header">
-        <span className="header__icon">💧</span>
-        <h1 className="header__title">Stellar Token Faucet</h1>
-        <p className="header__subtitle">
-          Claim free testnet tokens every 24 hours, powered by Soroban smart contracts.
-        </p>
-      </header>
+    <div className="app-container">
+      <Navbar
+        publicKey={wallet.publicKey}
+        truncatedKey={wallet.truncatedKey}
+        connecting={wallet.connecting}
+        onConnect={handleConnect}
+        onDisconnect={handleDisconnect}
+        activePage={page}
+        onNavigate={navigate}
+      />
 
-      {/* Main Content */}
-      {walletAddress ? (
-        <>
-          {/* Wallet Info Card */}
-          <div className="card wallet-section">
-            <div className="wallet-info">
-              <div className="wallet-info__dot" />
-              <div>
-                <div className="wallet-info__label">Connected Wallet</div>
-                <div className="wallet-info__address" title={walletAddress}>
-                  {truncateAddress(walletAddress)}
-                </div>
-              </div>
-            </div>
+      <main className="page-wrapper">
+        {renderPage()}
+      </main>
 
-            <BalanceDisplay
-              walletAddress={walletAddress}
-              refreshKey={refreshKey}
-            />
-          </div>
-
-          {/* Claim Card */}
-          <div className="card">
-            <ClaimTokens
-              walletAddress={walletAddress}
-              onClaimSuccess={handleClaimSuccess}
-              refreshKey={refreshKey}
-            />
-          </div>
-
-          {/* Disconnect Button */}
-          <div style={{ marginTop: '1rem', width: '100%', maxWidth: '480px' }}>
-            <button
-              className="btn btn--outline btn--sm"
-              onClick={disconnectWallet}
-              id="btn-disconnect"
-            >
-              ✕ Disconnect Wallet
-            </button>
-          </div>
-        </>
-      ) : (
-        /* Not Connected */
-        <div className="card">
-          <div className="not-connected">
-            <span className="not-connected__icon">🔗</span>
-            <h2 className="not-connected__title">Connect Your Wallet</h2>
-            <p className="not-connected__desc">
-              {isFreighterInstalled
-                ? 'Connect your Freighter wallet to claim tokens from the faucet.'
-                : 'Install the Freighter browser extension to get started.'}
-            </p>
-            {isFreighterInstalled ? (
-              <button
-                className="btn btn--primary"
-                onClick={connectWallet}
-                disabled={connecting}
-                id="btn-connect"
-              >
-                {connecting ? (
-                  <>
-                    <span className="spinner" /> Connecting…
-                  </>
-                ) : (
-                  <>🚀 Connect Freighter</>
-                )}
-              </button>
-            ) : (
-              <a
-                href="https://www.freighter.app/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn btn--primary"
-                id="btn-install-freighter"
-              >
-                📥 Install Freighter
-              </a>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Footer */}
-      <footer className="footer">
+      <footer className="app-footer">
+        <p>© 2026 StellarCrowdfund · Powered by Soroban Smart Contracts</p>
         <p>
-          Built on{' '}
-          <a href="https://stellar.org" target="_blank" rel="noopener noreferrer">
-            Stellar
-          </a>{' '}
-          with{' '}
-          <a href="https://soroban.stellar.org" target="_blank" rel="noopener noreferrer">
-            Soroban
-          </a>{' '}
-          smart contracts
+          <a href="https://stellar.org" target="_blank" rel="noopener noreferrer">Stellar</a>
+          {' · '}
+          <a href="https://www.freighter.app/" target="_blank" rel="noopener noreferrer">Freighter Wallet</a>
         </p>
       </footer>
+
+      <ToastContainer toasts={toasts} onDismiss={dismiss} />
     </div>
   );
 }
-
-export default App;

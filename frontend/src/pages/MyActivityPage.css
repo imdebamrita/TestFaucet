@@ -1,0 +1,89 @@
+/* ── My Activity Page ─────────────────────────────────────────────────────── */
+
+.activity-page {
+  max-width: var(--max-width);
+}
+
+.activity-header {
+  margin-bottom: 2rem;
+}
+
+.activity-header h1 {
+  margin-bottom: 0.5rem;
+}
+
+.activity-subtitle {
+  color: var(--text-secondary);
+  font-size: 1.05rem;
+}
+
+/* Tabs */
+.activity-tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 2rem;
+}
+
+.activity-tab {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 0.875rem 1.5rem;
+  font-family: var(--font-sans);
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: all 0.2s var(--ease-out);
+}
+
+.activity-tab:hover {
+  border-color: var(--border-hover);
+  color: var(--text-secondary);
+}
+
+.activity-tab--active {
+  background: rgba(99, 102, 241, 0.08);
+  border-color: rgba(99, 102, 241, 0.25);
+  color: var(--accent-bright);
+}
+
+.tab-icon {
+  font-size: 1.1rem;
+}
+
+.tab-count {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 700;
+  background: var(--bg-surface-hover);
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--radius-full);
+  color: var(--text-dim);
+}
+
+.activity-tab--active .tab-count {
+  background: rgba(99, 102, 241, 0.15);
+  color: var(--accent-bright);
+}
+
+/* Loading */
+.activity-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 5rem 0;
+  color: var(--text-dim);
+}
+
+/* ── Responsive ───────────────────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .activity-tabs {
+    flex-direction: column;
+  }
+}

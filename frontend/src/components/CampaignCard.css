@@ -1,0 +1,162 @@
+/* ── Campaign Card ─────────────────────────────────────────────────────────── */
+
+.campaign-card {
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  cursor: default;
+  animation: fadeInUp 0.5s var(--ease-out) backwards;
+}
+
+.campaign-card:nth-child(1) { animation-delay: 0s; }
+.campaign-card:nth-child(2) { animation-delay: 0.05s; }
+.campaign-card:nth-child(3) { animation-delay: 0.1s; }
+.campaign-card:nth-child(4) { animation-delay: 0.15s; }
+.campaign-card:nth-child(5) { animation-delay: 0.2s; }
+.campaign-card:nth-child(6) { animation-delay: 0.25s; }
+
+/* Clickable area */
+.card-clickable {
+  padding: 1.75rem 1.75rem 0;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  flex: 1;
+}
+
+/* Header */
+.card-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.card-badge-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.card-time {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-dim);
+}
+
+.card-title {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
+.card-desc {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  line-clamp: 2;
+  overflow: hidden;
+  margin: 0;
+}
+
+/* Badge dots */
+.badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.badge-dot--active {
+  background: var(--accent-bright);
+  box-shadow: 0 0 6px var(--accent-bright);
+}
+
+.badge-dot--success {
+  background: var(--color-success);
+  box-shadow: 0 0 6px var(--color-success);
+}
+
+.badge-dot--failed {
+  background: var(--color-error);
+  box-shadow: 0 0 6px var(--color-error);
+}
+
+/* Progress */
+.card-progress-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.card-stats-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.card-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 0.3rem;
+}
+
+.card-stat--right {
+  text-align: right;
+}
+
+.card-stat-value {
+  font-family: var(--font-mono);
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.card-stat-label {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Footer */
+.card-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.25rem 1.75rem;
+  border-top: 1px solid var(--border-subtle);
+  margin-top: auto;
+}
+
+.card-percent {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--accent-cyan);
+}
+
+.card-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.card-view-link {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  font-weight: 500;
+  transition: color 0.2s;
+}
+
+.campaign-card:hover .card-view-link {
+  color: var(--accent-bright);
+}
